@@ -5,9 +5,14 @@ AceTracker Tkinter app for tracking PokerStars data
 import customtkinter as ctk
 import csv
 import os
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure 
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib import rcParams
+from cycler import cycler
 from re import findall
 from tkinter import Listbox, Scrollbar
-from utility import handle_txt_file, save_to_json, load_from_json
+from utility import handle_txt_file, save_to_json, load_from_json, save_to_csv
 
 # Set themes
 ctk.set_appearance_mode("dark")  # Modes: system (default), light, dark
@@ -18,6 +23,10 @@ config_data = load_from_json(source="./hud_data/config.json")
 if config_data != 0:
     history_path = config_data["path_to_hand_history"]
     ps_username = config_data["pokerstars_username"]
+
+ctk_default_blue = "#1f538d"
+ctk_default_grey = "#212121"
+ctk_default_grey_light = "#292929"
 
 class MainApp(ctk.CTk):
     def __init__(self):
@@ -96,19 +105,21 @@ class StatsScreen(ctk.CTkFrame):
 
         # Button for refreshing data
         self.hud_button = ctk.CTkButton(self, text="Refresh", command=self.refresh_data)
-        self.hud_button.pack(side="top", pady=10, padx=10)
+        self.hud_button.pack(side="top", pady=5, padx=10)
         
         # Create frame for showing data
         self.hud_frame = ctk.CTkFrame(self)
-        self.hud_frame.pack(side="top", padx=20, pady=10, fill="both", expand=True)
+        self.hud_frame.pack(side="top", padx=20, pady=10)
 
         # Add optimal stats for REG
-        ctk.CTkLabel(self, text=f"REG: 23 / 19 / 65 / 7 / 50", font=("Arial", 14)).pack(padx=10, pady=10)
+        ctk.CTkLabel(self, text=f"REG: 23 / 19 / 7 / 65 / 50", font=("Arial", 14, "bold")).pack(padx=10, pady=5)
+
+        # Create frame for profit graph
+        self.plot_frame = ctk.CTkFrame(self)
+        self.plot_frame.pack(side="top", pady=10, fill="both", expand=True)
 
         # Load initial data and display hero statistics
         self.refresh_data()
-        statistics = load_from_json(source="./hud_data/hero_stats.json")
-        self.display_data(statistics)
 
     def display_data(self, statistics):
         """Displays the provided JSON data in the hud_frame.""" 
@@ -133,25 +144,28 @@ class StatsScreen(ctk.CTkFrame):
 
     def refresh_data(self):
         # Go through all data and calculate stats for Hero
-        files = [os.path.join(history_path, f) for f in os.listdir(history_path) if os.path.isfile(os.path.join(history_path, f))]
+        files = [os.path.join(history_path, f) for f in os.listdir(history_path) if os.path.isfile(os.path.join(history_path, f)) and "USD No Limit Hold'em" in f]
         if not files:
             print("No files found from", history_path)
         else:
             statistics = {}
+            bank_roll_data = []
             for f in files:
-                single_table_stats, _ = handle_txt_file(f, ps_username)
-                single_table_stats = single_table_stats[f"{ps_username}"]
-                for key in single_table_stats:
-                    if key in statistics:
-                        if key in ["played_hands", "profit"]:
-                            statistics[key]["value"] += single_table_stats[key]["value"]
+                single_table_stats, _, tmp_bank_roll_data = handle_txt_file(f, ps_username)
+                if single_table_stats:
+                    single_table_stats = single_table_stats[f"{ps_username}"]
+                    bank_roll_data.append(tmp_bank_roll_data)
+                    for key in single_table_stats:
+                        if key in statistics:
+                            if key in ["played_hands", "profit"]:
+                                statistics[key]["value"] += single_table_stats[key]["value"]
+                            else:
+                                statistics[key]["true"] += single_table_stats[key]["true"]
+                                statistics[key]["false"] += single_table_stats[key]["false"]
                         else:
-                            statistics[key]["true"] += single_table_stats[key]["true"]
-                            statistics[key]["false"] += single_table_stats[key]["false"]
-                    else:
-                        # This is first file, we can just copy values to total stats
-                        statistics = single_table_stats
-                        break
+                            # This is first file, we can just copy values to total stats
+                            statistics = single_table_stats
+                            break
 
             # Final tuning on statistics
             for stat in statistics:
@@ -165,7 +179,39 @@ class StatsScreen(ctk.CTkFrame):
             
             # Save to JSON file
             save_to_json(target="./hud_data/hero_stats.json", json_data=statistics)
+
+            # Save bank roll data to CSV
+            save_to_csv(target="./hud_data/bank_roll_data.csv", csv_data=bank_roll_data)
+
             self.display_data(statistics)
+            self.display_plot(bank_roll_data)
+    
+    def display_plot(self, plot_data):
+        # Clear the plot frame
+        for widget in self.plot_frame.winfo_children():
+            widget.destroy()
+
+        # Combine multiple lists into one list and add values together sequentially
+        combined_data = []
+        current_val = 0
+        for sub_list in plot_data:
+            for val in sub_list:
+                current_val += val
+                combined_data.append(current_val)
+
+        # Create a figure and axis for the plot
+        plt.style.use('dark_background')
+        rcParams['axes.prop_cycle'] = cycler('color', ['red', ctk_default_blue, 'green'])
+        fig = Figure(figsize = (50, 10), dpi = 100, facecolor=ctk_default_grey_light)
+        plot1 = fig.add_subplot(111)
+        plot1.set_title("Profit over time", 
+            fontdict={'fontsize': 14})
+        plot1.set_facecolor(ctk_default_grey)
+        plot1.grid(linestyle='--', linewidth=0.5, axis='y')
+        plot1.plot(combined_data)
+        canvas = FigureCanvasTkAgg(fig, master=self.plot_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
 
 class OpeningRanges(ctk.CTkFrame):
     def __init__(self, parent, controller):
@@ -186,7 +232,7 @@ class OpeningRanges(ctk.CTkFrame):
         self.menu_frame.pack(side="top", fill="x")
 
         # Button frame
-        self.button_frame = ctk.CTkFrame(self.menu_frame)
+        self.button_frame = ctk.CTkFrame(self.menu_frame, fg_color=ctk_default_grey)
         self.button_frame.pack(side="bottom", pady=(0, 10))
 
         # Create the frame for the table
@@ -314,14 +360,15 @@ class OpeningRanges(ctk.CTkFrame):
 
     def refresh_data(self):
         # Check latest table from hand_history
-        files = [os.path.join(history_path, f) for f in os.listdir(history_path) if os.path.isfile(os.path.join(history_path, f))]
+        files = [os.path.join(history_path, f) for f in os.listdir(history_path) if os.path.isfile(os.path.join(history_path, f)) and "USD No Limit Hold'em" in f]
         if files:
             latest_file = max(files, key=os.path.getmtime)
 
         # Parse data from latest table
         if latest_file:
-            table_stats, last_hand_stats = handle_txt_file(latest_file, ps_username)
-            self.display_hud(table_stats, last_hand_stats)
+            table_stats, last_hand_stats, _ = handle_txt_file(latest_file, ps_username)
+            if table_stats:
+                self.display_hud(table_stats, last_hand_stats)
     
     def display_hud(self, long_stats, short_stats):
         """Displays the provided JSON data in the hud_frame.""" 
@@ -330,7 +377,7 @@ class OpeningRanges(ctk.CTkFrame):
             widget.destroy()
 
         # Create a table displaying stats for each player
-        header = ["Player", "VPIP", "PFR", "3Bet", "Fold vs Btn", "Fold vs C-bet"]
+        header = ["Player", "VPIP", "PFR", "3Bet", "Fold vs Btn", "Fold vs C-bet", "Hands"]
         row, col = 0, 0
         for h in header:
             cell_text = f"{h}"
@@ -341,11 +388,20 @@ class OpeningRanges(ctk.CTkFrame):
                 corner_radius=0,
                 font=("Arial", 14)
             )
-            cell.grid(row=row, column=col, padx=3, pady=3, sticky="nsew")
+            cell.grid(row=row, column=col, padx=5, pady=3, sticky="nsew")
             col += 1
 
+        # Display players in a descending order based on played hands
+        active_players = []
         for seat in short_stats:
             player = short_stats[seat]["usr"]
+            played_hands = long_stats[player]["played_hands"]["value"]
+            active_players.append((player, played_hands))
+
+        # Sort players by played hands in descending order
+        active_players.sort(key=lambda x: x[1], reverse=True)
+
+        for player, _ in active_players:
             row += 1
             col = 0
             cell = ctk.CTkLabel(
@@ -354,9 +410,9 @@ class OpeningRanges(ctk.CTkFrame):
                 corner_radius=0,
                 font=("Arial", 14, "bold")
             )
-            cell.grid(row=row, column=col, padx=3, pady=3, sticky="nsew")
+            cell.grid(row=row, column=col, padx=5, pady=3, sticky="nsew")
             for stat in long_stats[player]:
-                if stat != "played_hands" and stat != "profit":
+                if stat != "profit":
                     col += 1
                     cell_text = f"{long_stats[player][stat]['value']}"
 
@@ -366,21 +422,29 @@ class OpeningRanges(ctk.CTkFrame):
                         corner_radius=0,
                         font=("Arial", 14)
                     )
-                    cell.grid(row=row, column=col, padx=3, pady=3, sticky="nsew")
+                    cell.grid(row=row, column=col, padx=5, pady=3, sticky="nsew")
 
 class HandDBScreen(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
 
+        # Init active filters for listbox
+        self.active_filters = {
+            "won": 0,
+            "lost": 0,
+            "post-flop": 0,
+            "showdown": 0
+        }
+
         # Load hands data from JSON files
         self.hands_data = self.load_hands_data()
 
         # Create frames for displaying data
         self.selection_frame = ctk.CTkFrame(self, width=50)
-        self.selection_frame.pack(side="left", padx=10, pady=10, expand=False)
+        self.selection_frame.pack(side="left", padx=5, pady=5, expand=False)
 
-        self.display_frame = ctk.CTkFrame(self, corner_radius=0)
+        self.display_frame = ctk.CTkFrame(self)
         self.display_frame.pack(side="right", fill="both", expand=True)
 
         self.stages_frame = ctk.CTkFrame(self.display_frame, corner_radius=0)
@@ -393,22 +457,25 @@ class HandDBScreen(ctk.CTkFrame):
         self.listbox_frame = ctk.CTkFrame(self.selection_frame)
         self.listbox_frame.pack(fill="both")
 
-        # Filter buttons
-        self.button_frame = ctk.CTkFrame(self.selection_frame)
-        self.button_frame.pack(side="top", pady=5)
+        # Filter checkboxes
+        self.checkbox_frame = ctk.CTkFrame(self.selection_frame, fg_color=ctk_default_grey)
+        self.checkbox_frame.pack(side="top", pady=5)
 
-        self.normal_filter = ctk.CTkButton(self.button_frame, text="All", command=lambda: self.update_listbox("all"), width=47)
-        self.normal_filter.pack(side="left", padx=3)
+        self.won_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="Won", command=self.update_listbox)
+        self.won_checkbox.grid(row=0, column=0, padx=3, pady=3, sticky="nsew")
 
-        self.won_filter = ctk.CTkButton(self.button_frame, text="Won", command=lambda: self.update_listbox("won"), width=47)
-        self.won_filter.pack(side="left", padx=3)
+        self.lost_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="Lost", command=self.update_listbox)
+        self.lost_checkbox.grid(row=0, column=1, padx=3, pady=3, sticky="nsew")
 
-        self.lost_filter = ctk.CTkButton(self.button_frame, text="Lost", command=lambda: self.update_listbox("lost"), width=47)
-        self.lost_filter.pack(side="left", padx=3)
+        self.post_flop_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="Post-flop", command=self.update_listbox)
+        self.post_flop_checkbox.grid(row=1, column=0, padx=3, pady=3, sticky="nsew")
+
+        self.showdown_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="Showdown", command=self.update_listbox)
+        self.showdown_checkbox.grid(row=1, column=1, padx=3, pady=3, sticky="nsew")
 
         # Create listbox for selecting hands with a scrollbar
-        self.hand_listbox = Listbox(self.listbox_frame, bg="black", fg="white", 
-            selectbackground="gray", selectforeground="black", height=35, font=("Arial", 10))
+        self.hand_listbox = Listbox(self.listbox_frame, bg=ctk_default_grey, fg="white", activestyle='none',
+            selectbackground=ctk_default_blue, selectforeground="white", height=38, font=("Arial", 11))
         self.hand_listbox.pack(side="left", fill="both")
 
         self.scrollbar = Scrollbar(self.listbox_frame, command=self.hand_listbox.yview)
@@ -434,30 +501,64 @@ class HandDBScreen(ctk.CTkFrame):
         self.river_frame = ctk.CTkFrame(self.stages_frame)
         self.river_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
-    def load_hands_data(self, filter=None):
+    def load_hands_data(self):
         hands_data = {}
         hands_db_path = "./hands_db"
         for file_name in os.listdir(hands_db_path):
             if file_name.endswith("_db.json"):
                 data = load_from_json(source=os.path.join(hands_db_path, file_name))
                 hands_data.update(data)
-        # Find either won or lost hands
-        keys = list(hands_data.keys())
-        if filter == "won":
-            for key in keys:
-                profit = key.split("_")[-1]
-                if float(profit) <= 0:
-                    hands_data.pop(key)
-        elif filter == "lost":
-            for key in keys:
-                profit = key.split("_")[-1]
-                if float(profit) >= 0:
-                    hands_data.pop(key)
+        # Filter hands to be displayed
+        for filter in self.active_filters:
+            # Update list every iteration
+            hand_ids = list(hands_data.keys())
+            if filter == "won" and self.active_filters["won"] == 1:
+                for hand in hand_ids:
+                    profit = hand.split("_")[-1]
+                    if float(profit) <= 0:
+                        hands_data.pop(hand)
+            elif filter == "lost" and self.active_filters["lost"] == 1:
+                for hand in hand_ids:
+                    profit = hand.split("_")[-1]
+                    if float(profit) >= 0:
+                        hands_data.pop(hand)
+            elif filter == "post-flop" and self.active_filters["post-flop"] == 1:
+                for hand in hand_ids:
+                    hero_found = 0
+                    if "flop" in hands_data[hand]:
+                        for action in hands_data[hand]["flop"]:
+                            if ps_username in action:
+                                hero_found = 1
+                                break
+                    if not hero_found: hands_data.pop(hand)
+            elif filter == "showdown" and self.active_filters["showdown"] == 1:
+                for hand in hand_ids:
+                    hero_folded = 1
+                    for stage in ["flop", "turn", "river"]:
+                        if stage in hands_data[hand]:
+                            for action in hands_data[hand][stage]:
+                                if ps_username in action:
+                                    hero_folded = 0
+                                    if "folds" in action:
+                                        hero_folded = 1
+                                        break
+                        else:
+                            hero_folded = 1
+                            break
+                    if hero_folded: hands_data.pop(hand)
+
         return hands_data
-    
-    def update_listbox(self, filter):
+
+    def update_listbox(self):
+        # Update active filters based on checkboxes
+        self.active_filters["won"] = self.won_checkbox.get()
+        self.active_filters["lost"] = self.lost_checkbox.get()
+        self.active_filters["post-flop"] = self.post_flop_checkbox.get()
+        self.active_filters["showdown"] = self.showdown_checkbox.get()
+
+        # Update listbox data
         self.hand_listbox.delete(0, "end")
-        self.hands_data = self.load_hands_data(filter)
+        self.hands_data = self.load_hands_data()
         for hand_id in self.hands_data.keys():
             self.hand_listbox.insert("end", hand_id)
 
@@ -485,7 +586,7 @@ class HandDBScreen(ctk.CTkFrame):
         }
         pot_size = 0.0
         for s in stages.keys():
-            title = f"----------  {s.capitalize()}  -----------"
+            title = f"- - - - - -   {s.capitalize()}   - - - - - -"
             if s in hand_data:
                 if s != "summary":
                     pot_size = self.display_stage_data(stages[s], title, hand_data[s], pot_size)
@@ -493,10 +594,10 @@ class HandDBScreen(ctk.CTkFrame):
                     self.display_summary_data(stages[s], hand_data[s])
             else:
                 # Display empty box with title
-                ctk.CTkLabel(stages[s], text=f"{title}", font=("Arial", 20, "bold")).pack(anchor="n", padx=10, pady=2)
+                ctk.CTkLabel(stages[s], text=f"{title}", font=("Arial", 19, "bold")).pack(anchor="n", padx=10, pady=2)
 
     def display_stage_data(self, frame, stage_name, stage_data, pot_size=0.0):
-        ctk.CTkLabel(frame, text=f"{stage_name}", font=("Arial", 20, "bold")).pack(anchor="n", padx=10, pady=2)
+        ctk.CTkLabel(frame, text=f"{stage_name}", font=("Arial", 19, "bold")).pack(anchor="n", padx=10, pady=2)
         for action in stage_data:
             if action.startswith("board:"):
                 # Extract the board cards
@@ -509,27 +610,48 @@ class HandDBScreen(ctk.CTkFrame):
                     pot_size += amount
 
                 # Set text color and font options based on action type
-                font_options = [14, "bold"]
+                box_color = None
                 if ps_username in action:
                     action = action.replace(ps_username, "HERO")
-                if "bets" in action or "raises" in action:
-                    txt_color = "#ff0000"
+                    box_color = "#383838"
+                if "raises" in action:
+                    txt_color = "#ce2029"
+                elif "bets" in action:
+                    txt_color = "#ff4d00"
                 elif "calls" in action or "checks" in action:
                     txt_color = "#e4cd05"
                 elif "posts" in action:
-                    txt_color = "#0055b3"
+                    txt_color = "green"
                 else:
                     txt_color = "white"
-                    font_options = [12, "normal"]
 
-                # Display action
-                action_label = ctk.CTkLabel(
-                    frame,
-                    text=action,
-                    font=("Arial", font_options[0], font_options[1]),
+                # Split action to two parts: Username, action
+                usr, act = action.split(":")
+
+                # If action is check or fold, display in a single line
+                if "folds" in act or "checks" in act:
+                    usr = usr + act
+                    act = None
+
+                action_frame = ctk.CTkFrame(frame, fg_color=box_color)
+                action_frame.pack(anchor="w", padx=10, pady=2, fill="x")
+
+                usr_label = ctk.CTkLabel(
+                    action_frame,
+                    text=usr.strip(),
+                    font=("Arial", 12, "normal"),
                     text_color=txt_color
+                )
+                usr_label.pack(anchor="nw", padx=10, pady=0)
+
+                if act:
+                    act_label = ctk.CTkLabel(
+                        action_frame,
+                        text=act.strip(),
+                        font=("Arial", 14, "bold"),
+                        text_color=txt_color
                     )
-                action_label.pack(anchor="w", padx=10, pady=5)
+                    act_label.pack(anchor="w", padx=10, pady=0)
         # Display final pot size for the stage
         pot_label = ctk.CTkLabel(
             frame,
@@ -577,7 +699,7 @@ class HandDBScreen(ctk.CTkFrame):
             profit_label.pack(side="top", padx=10, pady=5)
 
     def text_to_cards(self, frame, cards_list):
-        board_frame = ctk.CTkFrame(frame)
+        board_frame = ctk.CTkFrame(frame, fg_color=ctk_default_grey)
         board_frame.pack(side="top", padx=5, pady=5)
 
         for card in cards_list:
@@ -593,7 +715,7 @@ class HandDBScreen(ctk.CTkFrame):
             suit_color = {
                 'h': '#ff0000',
                 'd': '#f94449',
-                'c': '#000c19',
+                'c': '#000020',
                 's': '#000000',
                 '?': '#111111' # For unknown cards
             }[suit]

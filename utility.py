@@ -26,6 +26,7 @@ def handle_txt_file(source_file, hero_name):
     current_seat = None
     data_from_hand = {}
     total_hands_data = {}
+    bank_roll_data = []
     # DEBUG SHIT
     super_debug = 0
     with open(source_file, 'r') as source:
@@ -166,7 +167,8 @@ def handle_txt_file(source_file, hero_name):
                     # If profit checked for all players, save data to database
                     if profit_checked == len(temp_stats):
                         dict_key = f"{hand_id}_{data_from_hand['summary'][hero_name]['profit']:.2f}"
-                        total_hands_data[dict_key[4:]] = data_from_hand
+                        bank_roll_data.append(float(data_from_hand['summary'][hero_name]['profit']))
+                        total_hands_data[dict_key[3:]] = data_from_hand
                         if super_debug: print("Hand data saved to database")
 
                 # Check dealt cards to hero and show-down cards
@@ -192,9 +194,14 @@ def handle_txt_file(source_file, hero_name):
                     long_stats[player][stat]["value"] = int(100 * long_stats[player][stat]["value"])
                 else:
                     long_stats[player][stat]["value"] = 0
-    # Save hands to database
-    save_to_json(f"./hands_db/{hand_db_file}", total_hands_data)
-    return long_stats, temp_stats
+    
+    # If valid data, save to database and return collected data
+    if long_stats:
+        # Save hands to database
+        save_to_json(f"./hands_db/{hand_db_file}", total_hands_data)
+        return long_stats, temp_stats, bank_roll_data
+    # Return 0 to indicate, that data not valid
+    return 0, 0, 0
 
 def check_player_actions(user_seat, user_name, txt_line, hand_state, long_stats, short_stats, debug):
     """
@@ -329,3 +336,11 @@ def create_opening_ranges():
     for pos in positions:
         file_name = f"./hud_data/open_{pos}.json"
         save_to_json(file_name, json_dict)
+
+def save_to_csv(target, csv_data):
+    """
+    Function that saves data to json file
+    """
+    with open(target, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerows(csv_data)
