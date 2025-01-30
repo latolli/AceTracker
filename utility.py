@@ -6,13 +6,31 @@ import os
 import csv
 from re import findall
 
-def reset_counters(short_stats):
+def street_start_actions(short_stats, hand_db_data, line, current_state, previous_state, debug=0):
     """
-    Function for resetting certain counters
+    Function for handling actions required in start of every street
     """
+    streets = ["pre-flop", "flop", "turn", "river"]
+    # Check cards
+    cards = None
+    if current_state == "flop":
+        cards = line.split("[")[1].split("]")[0]
+    elif current_state in ["turn", "river"]:
+        cards = line.split("] [")[1].split("]")[0]
+    
+    # Reset raise counter and check money betted
+    pot_size = 0.0
     for seat in short_stats:
         short_stats[seat]["raises"] = 0
-    return short_stats
+        short_stats[seat]["money_betted_total"] += short_stats[seat]["money_betted_this_state"]
+        pot_size += short_stats[seat]["money_betted_this_state"]
+        short_stats[seat]["money_betted_this_state"] = 0
+
+    # Check pot size for previous street
+    if previous_state in streets:
+        hand_db_data[previous_state].append(f"pot size: ${pot_size:.2f}")
+        if debug: print(f"ADDED pot size: ${pot_size:.2f}")
+    return short_stats, hand_db_data, cards
 
 def handle_txt_file(source_file, hero_name):
     """
@@ -53,23 +71,28 @@ def handle_txt_file(source_file, hero_name):
                 state = "pre-flop"
             elif "*** FLOP ***" in line:
                 state = "flop"
-                temp_stats = reset_counters(temp_stats)
-                cards = line.split("[")[1].split("]")[0]
+                temp_stats, data_from_hand, cards = street_start_actions(temp_stats, data_from_hand, line, state, "pre-flop", super_debug)
                 data_from_hand["flop"] = [f"board: {cards}"]
+                if super_debug: print("HAND_DB 1: ", data_from_hand["pre-flop"])
             elif "*** TURN ***" in line:
                 state = "turn"
-                temp_stats = reset_counters(temp_stats)
-                cards = line.split("] [")[1].split("]")[0]
+                temp_stats, data_from_hand, cards = street_start_actions(temp_stats, data_from_hand, line, state, "flop", super_debug)
                 data_from_hand["turn"] = [f"board: {cards}"]
+                if super_debug: print("HAND_DB 2: ", data_from_hand["flop"])
             elif "*** RIVER ***" in line:
                 state = "river"
-                temp_stats = reset_counters(temp_stats)
-                cards = line.split("] [")[1].split("]")[0]
+                temp_stats, data_from_hand, cards = street_start_actions(temp_stats, data_from_hand, line, state, "turn", super_debug)
                 data_from_hand["river"] = [f"board: {cards}"]
+                if super_debug: print("HAND_DB 3: ", data_from_hand["turn"])
             elif "*** SHOW DOWN ***" in line:
-                state = "show-down"
+                state = "showdown"
+                temp_stats, data_from_hand, _ = street_start_actions(temp_stats, data_from_hand, line, state, "river", super_debug)
+                if super_debug: print("HAND_DB 4: ", data_from_hand["river"])
             elif "*** SUMMARY ***" in line:
+                # Calculate pot size, total money betted etc. one last time to update values for previous street
+                last_street = state
                 state = "end-hand"
+                temp_stats, data_from_hand, _ = street_start_actions(temp_stats, data_from_hand, line, state, last_street, super_debug)
 
 
             if super_debug: print("State:", state, line)
@@ -84,15 +107,13 @@ def handle_txt_file(source_file, hero_name):
                         "usr": usr,
                         "pos": None,
                         "raises": 0,
-                        "chips_at_start": 0.0,
+                        "money_betted_this_state": 0.0,
+                        "money_betted_total": 0.0
                     }
-                    # Create data to hand DB for player
+                    # Create data to hand DB for player and check if player exists in long term stats
                     data_from_hand["summary"][usr] = {"position": "??", "cards": "?? ??", "profit": 999}
-                    # Check if player exists in long term stats
                     if usr in long_stats:
                         long_stats[usr]["played_hands"]["value"] += 1
-                        temp_stats[f"seat{seat_id}"]["chips_at_start"] = long_stats[usr]["profit"]["value"]
-                        if super_debug: print("Long stats exist")
                     else:
                         # Create new player to track
                         long_stats[usr] = {
@@ -139,40 +160,44 @@ def handle_txt_file(source_file, hero_name):
                 # Check money betted / won
                 find_dollars = findall(r"\$(\d+\.\d+)", line)
                 if find_dollars:
-                    if super_debug: print("Profit before:", long_stats[current_player]["profit"]["value"])
-                    if state not in ["end-hand", "show-down"]:
-                        if "bets" in line or "raises" in line or "calls" in line:
-                            long_stats[current_player]["profit"]["value"] -= float(find_dollars[-1])
+                    if state not in ["end-hand", "showdown"]:
+                        if "bets" in line or "calls" in line:
+                            temp_stats[current_seat]["money_betted_this_state"] += float(find_dollars[-1])
                         elif "posts" in line and "blind" in line:
-                            long_stats[current_player]["profit"]["value"] -= float(find_dollars[-1])
+                            temp_stats[current_seat]["money_betted_this_state"] += float(find_dollars[-1])
                             data_from_hand["pre-flop"].append(f"{temp_stats[current_seat]['usr']}: posts ${find_dollars[-1]}")
+                        elif "raises" in line:
+                            # Special case: If hero raises after call / bet / raise, we can just override previous money betted
+                            temp_stats[current_seat]["money_betted_this_state"] = float(find_dollars[-1])
                         elif "Uncalled bet" in line:
-                            long_stats[current_player]["profit"]["value"] += float(find_dollars[-1])
+                            temp_stats[current_seat]["money_betted_this_state"] -= float(find_dollars[-1])
                     elif state == "end-hand":
                         if "collected" in line or "won" in line:
-                            long_stats[current_player]["profit"]["value"] += float(find_dollars[-1])
-                    if super_debug: print("Profit after:", long_stats[current_player]["profit"]["value"])
+                            temp_stats[current_seat]["money_betted_total"] -= float(find_dollars[-1])
                 
                 if state == "end-hand":
                     # Calculate money won/lost in this hand
-                    if super_debug: print("Checking profit", long_stats[current_player]["profit"]["value"], temp_stats[current_seat]["chips_at_start"])
-                    profit = float(long_stats[current_player]["profit"]["value"]) - float(temp_stats[current_seat]["chips_at_start"])
-                    data_from_hand["summary"][current_player]["profit"] = profit
-                    if super_debug: print("Checked profit for", current_player, profit)
+                    profit_before = float(long_stats[current_player]["profit"]["value"])
+                    long_stats[current_player]["profit"]["value"] = profit_before - temp_stats[current_seat]["money_betted_total"]
+                    if super_debug: print("Checking profit", long_stats[current_player]["profit"]["value"], profit_before)
+                    
+                    data_from_hand["summary"][current_player]["profit"] = long_stats[current_player]["profit"]["value"] - profit_before
+
                     # Check if profit calculated for all players
                     profit_checked = 0
                     for player in data_from_hand["summary"]:
                         if data_from_hand["summary"][player]["profit"] != 999:
                             profit_checked += 1
+
                     # If profit checked for all players, save data to database
                     if profit_checked == len(temp_stats):
                         dict_key = f"{hand_id}_{data_from_hand['summary'][hero_name]['profit']:.2f}"
                         bank_roll_data.append(float(data_from_hand['summary'][hero_name]['profit']))
                         total_hands_data[dict_key[3:]] = data_from_hand
-                        if super_debug: print("Hand data saved to database")
+                        if super_debug: print("Hand data saved to database", data_from_hand)
 
-                # Check dealt cards to hero and show-down cards
-                if (state == "pre-flop" and "Dealt to " in line) or (state == "show-down" and "shows" in line):
+                # Check dealt cards to hero and showdown cards
+                if (state == "pre-flop" and "Dealt to " in line) or (state == "showdown" and "shows" in line):
                     cards = line.split("[")[1].split("]")[0]
                     data_from_hand["summary"][current_player]["cards"] = cards
                     if super_debug: print("Cards found:", cards)

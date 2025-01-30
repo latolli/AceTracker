@@ -364,11 +364,11 @@ class OpeningRanges(ctk.CTkFrame):
         if files:
             latest_file = max(files, key=os.path.getmtime)
 
-        # Parse data from latest table
-        if latest_file:
-            table_stats, last_hand_stats, _ = handle_txt_file(latest_file, ps_username)
-            if table_stats:
-                self.display_hud(table_stats, last_hand_stats)
+            # Parse data from latest table
+            if latest_file:
+                table_stats, last_hand_stats, _ = handle_txt_file(latest_file, ps_username)
+                if table_stats:
+                    self.display_hud(table_stats, last_hand_stats)
     
     def display_hud(self, long_stats, short_stats):
         """Displays the provided JSON data in the hud_frame.""" 
@@ -603,27 +603,25 @@ class HandDBScreen(ctk.CTkFrame):
                 # Extract the board cards
                 board_cards = action.split("board: ")[1].split()
                 self.text_to_cards(frame, board_cards)
+            elif action.startswith("pot size:"):
+                amount = float(findall(r"\$(\d+\.\d+)", action)[-1])
+                pot_size += amount
             else:
-                # Check pot size
-                if "posts" in action or "bets" in action or "raises" in action or "calls" in action:
-                    amount = float(findall(r"\$(\d+\.\d+)", action)[-1])
-                    pot_size += amount
-
                 # Set text color and font options based on action type
                 box_color = None
                 if ps_username in action:
                     action = action.replace(ps_username, "HERO")
                     box_color = "#383838"
-                if "raises" in action:
-                    txt_color = "#ce2029"
-                elif "bets" in action:
-                    txt_color = "#ff4d00"
-                elif "calls" in action or "checks" in action:
-                    txt_color = "#e4cd05"
-                elif "posts" in action:
-                    txt_color = "green"
-                else:
-                    txt_color = "white"
+                txt_color_options = {
+                    'raises': '#ce2029',
+                    'bets': '#ff4d00',
+                    'calls': '#e4cd05',
+                    'posts': 'green',
+                }
+                txt_color = "white"
+                for word in txt_color_options.keys():
+                    if word in action:
+                        txt_color = txt_color_options[word]
 
                 # Split action to two parts: Username, action
                 usr, act = action.split(":")
