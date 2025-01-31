@@ -223,6 +223,9 @@ class OpeningRanges(ctk.CTkFrame):
         self.player_data = []
         self.active_pos = "SB"
         
+        # Load opening ranges from JSON
+        self.opening_ranges = load_from_json(source="./hud_data/opening_ranges.json")
+        
         # Create frame for showing data
         self.hud_frame = ctk.CTkFrame(self)
         self.hud_frame.pack(side="top", expand=True)
@@ -256,35 +259,56 @@ class OpeningRanges(ctk.CTkFrame):
             self.tableTexts = [row for row in csv_reader]
 
         # Add navigation buttons and title
-        self.position_display = ctk.CTkLabel(self.menu_frame, text=f"{self.active_pos}".upper(), font=("Arial", 24, "bold"))
+        self.position_display = ctk.CTkLabel(self.menu_frame, text=f"{self.active_pos}", font=("Arial", 24, "bold"))
         self.position_display.pack(side="top", pady=3, padx=10)
 
-        self.sb = ctk.CTkButton(self.button_frame, text="SB", command=lambda: self.change_active_position("sb"))
+        self.sb = ctk.CTkButton(self.button_frame, text="SB", command=lambda: self.change_active_position("SB"))
         self.sb.pack(side="left", padx=5)
 
-        self.bb = ctk.CTkButton(self.button_frame, text="BB", command=lambda: self.change_active_position("bb"))
+        self.bb = ctk.CTkButton(self.button_frame, text="BB", command=lambda: self.change_active_position("BB"))
         self.bb.pack(side="left", padx=5)
 
-        self.utg = ctk.CTkButton(self.button_frame, text="UTG", command=lambda: self.change_active_position("utg"))
+        self.utg = ctk.CTkButton(self.button_frame, text="UTG", command=lambda: self.change_active_position("UTG"))
         self.utg.pack(side="left", padx=5)
 
-        self.hj = ctk.CTkButton(self.button_frame, text="HJ", command=lambda: self.change_active_position("hj"))
+        self.hj = ctk.CTkButton(self.button_frame, text="HJ", command=lambda: self.change_active_position("HJ"))
         self.hj.pack(side="left", padx=5)
 
-        self.co = ctk.CTkButton(self.button_frame, text="CO", command=lambda: self.change_active_position("co"))
+        self.co = ctk.CTkButton(self.button_frame, text="CO", command=lambda: self.change_active_position("CO"))
         self.co.pack(side="left", padx=5)
 
-        self.bu = ctk.CTkButton(self.button_frame, text="BU", command=lambda: self.change_active_position("bu"))
+        self.bu = ctk.CTkButton(self.button_frame, text="BU", command=lambda: self.change_active_position("BU"))
         self.bu.pack(side="left", padx=5)
 
-        # Add stuff to bottom frame
-        self.edit_button = ctk.CTkButton(self.bottom_frame, text="Clear", command=lambda: self.clear_selected()).pack(side="left", pady=15, padx=15)
-        self.edit_button = ctk.CTkButton(self.bottom_frame, text="Confirm", command=lambda: self.confirm_selection()).pack(side="left", pady=15, padx=15)
-        self.selected_cells_display = ctk.CTkLabel(self.bottom_frame, text=f"Selected cells: {self.selected_cells}")
+        # Bottom frame elements
+        self.clear_btn = ctk.CTkButton(
+            self.bottom_frame, 
+            text="Clear", 
+            command=self.clear_selected
+        )
+        self.clear_btn.pack(side="left", pady=15, padx=15)
+        
+        self.confirm_btn = ctk.CTkButton(
+            self.bottom_frame, 
+            text="Confirm", 
+            command=self.confirm_selection
+        )
+        self.confirm_btn.pack(side="left", pady=15, padx=15)
+
+        # Selected cells display with StringVar
+        self.selected_cells_var = ctk.StringVar()
+        self.selected_cells_display = ctk.CTkLabel(
+            self.bottom_frame, 
+            textvariable=self.selected_cells_var
+        )
         self.selected_cells_display.pack(padx=15, pady=15)
 
-        # Create initial table with SB position selected
-        self.change_active_position("sb")
+        # Create a dictionary to store cell buttons for faster updates
+        self.cell_buttons = {}
+        
+        # Create initial table
+        self.create_table()
+        self.change_active_position("SB")
 
     def create_table(self):
         # Clear the frame first
@@ -295,24 +319,43 @@ class OpeningRanges(ctk.CTkFrame):
             for col in range(13):
                 # Create a clickable cell
                 cell_text = f"{self.tableTexts[row][col]}"
-                cell_color = None
-                if self.active_open_range[cell_text]:
+                if cell_text in self.opening_ranges[self.active_pos]:
                     cell_color = "brown"
 
                 cell = ctk.CTkButton(
                     self.table_frame,
-                    text=f"{self.tableTexts[row][col]}",
+                    text=cell_text,
                     command=lambda c=cell_text: self.on_cell_click(c),
                     corner_radius=5,
                     fg_color=cell_color
                 )
                 cell.grid(row=row, column=col, padx=3, pady=3, sticky="nsew")
+                self.cell_buttons[cell_text] = cell 
 
         # Configure grid weights for dynamic resizing
         for i in range(13):
             self.table_frame.rowconfigure(i, weight=1)
         for j in range(13):
             self.table_frame.columnconfigure(j, weight=1)
+
+    def update_table_colors(self):
+        """Update colors for all buttons"""
+        for cell_text, button in self.cell_buttons.items():
+            if cell_text in self.opening_ranges[self.active_pos]:
+                base_color = "brown"
+            else:
+                base_color = ctk_default_blue
+
+            # Darken if selected
+            if cell_text in self.selected_cells:
+                if base_color == "brown":
+                    color = "#5c1919"
+                else:
+                    color = "#0c2645"
+            else:
+                color = base_color
+            
+            button.configure(fg_color=color)
 
     def on_cell_click(self, cell_text):
         """Handles cell click event."""
@@ -323,40 +366,40 @@ class OpeningRanges(ctk.CTkFrame):
         else:
             self.selected_cells.append(cell_text)
         self.refresh_selected_list()
+        self.update_table_colors()  # Update colors when selection changes
 
     def change_active_position(self, new_pos):
-        """Change position and load opening range for selected position"""
+        """Change position and update display"""
         self.active_pos = new_pos
-        self.active_open_range = load_from_json(source=f"./hud_data/open_{new_pos}.json")
-
-        # Refresh table and active pos
-        self.position_display.destroy()
-        self.position_display = ctk.CTkLabel(self.menu_frame, text=f"{self.active_pos}".upper(), font=("Arial", 24, "bold"))
-        self.position_display.pack(side="top", pady=5)
-        self.create_table()
+        self.position_display.configure(text=self.active_pos)
+        self.update_table_colors()
 
     def clear_selected(self):
         # Empty selected cells list
         self.selected_cells = []
         self.refresh_selected_list()
+        self.update_table_colors()
 
     def confirm_selection(self):
-        # Loop selected cells and change their values
+        # Update the ranges for current position
         for cell in self.selected_cells:
-            self.active_open_range[cell] = (self.active_open_range[cell]+1) % 2 # Change to 0 or 1
+            if cell in self.opening_ranges[self.active_pos]:
+                self.opening_ranges[self.active_pos].remove(cell)
+            else:
+                self.opening_ranges[self.active_pos].append(cell)
+        
         self.selected_cells = []
-
-        # Save to JSON file
-        save_to_json(target=f"./hud_data/open_{self.active_pos}.json", json_data=self.active_open_range)
-
-        # Refresh table and list
-        self.create_table()
+        
+        # Save changes immediately
+        save_to_json("./hud_data/opening_ranges.json", self.opening_ranges)
+        
+        # Update UI
+        self.update_table_colors()
         self.refresh_selected_list()
 
     def refresh_selected_list(self):
-        self.selected_cells_display.destroy()
-        self.selected_cells_display = ctk.CTkLabel(self.bottom_frame, text=f"Selected cells: {self.selected_cells}")
-        self.selected_cells_display.pack(padx=10, pady=10)
+        """Update the selected cells display"""
+        self.selected_cells_var.set(f"Selected cells: {self.selected_cells}")
 
     def refresh_data(self):
         # Check latest table from hand_history
