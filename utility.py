@@ -5,6 +5,7 @@ import json
 import os
 import csv
 from re import findall
+import re
 
 def street_start_actions(short_stats, hand_db_data, line, current_state, previous_state, debug=0):
     """
@@ -36,20 +37,32 @@ def handle_txt_file(source_file, hero_name):
     """
     Function for parsing txt files containing all hands played in one table
     """
-    temp_stats = {} # For keeping track of player positions, blinds, money betted etc on a single hand
-    long_stats = {} # For keeping track of long term stats like VPIP and PFR
-    state = "none"
-    positions_assigned = 0
-    seat_id = 0
-    current_seat = None
-    data_from_hand = {}
-    total_hands_data = {}
+    # Pre-compile regex patterns
+    dollar_pattern = re.compile(r"\$(\d+\.\d+)")
+    hand_id_pattern = re.compile(r"PokerStars Hand #(\d+)")
+    
+    # Initialize variables outside the loop
+    temp_stats = {}
+    long_stats = {}
     bank_roll_data = []
-    # DEBUG SHIT
-    super_debug = 0
-    with open(source_file, 'r') as source:
+    
+    # Read file in chunks for better performance
+    with open(source_file, 'r', buffering=8192) as source:
         hand_db_file = source_file.split("\\")[-1].split("-")[0].replace(" ", "_") + "db.json"
-        for line in source:
+        
+        # Process file in larger chunks
+        content = source.read()
+        lines = content.splitlines()
+        
+        state = "none"
+        positions_assigned = 0
+        seat_id = 0
+        current_seat = None
+        data_from_hand = {}
+        total_hands_data = {}
+        # DEBUG SHIT
+        super_debug = 0
+        for line in lines:
             # Check hand state
             if "PokerStars Hand #" in line:
                 # Skip tournaments
@@ -158,7 +171,7 @@ def handle_txt_file(source_file, hero_name):
             # If valid seat number found
             if current_seat:
                 # Check money betted / won
-                find_dollars = findall(r"\$(\d+\.\d+)", line)
+                find_dollars = dollar_pattern.findall(line)
                 if find_dollars:
                     if state not in ["end-hand", "showdown"]:
                         if "bets" in line or "calls" in line:
@@ -305,7 +318,7 @@ def save_to_json(target, json_data):
 
 def load_from_json(source):
     """
-    Function that saves data to json file
+    Function that loads data from json file
     """
     if os.path.exists(source):
         with open(source) as json_file:
@@ -322,7 +335,7 @@ def load_from_json(source):
             create_config(source)
         elif "hud_data/hero_stats.json" in source:
             create_hero_stats(source)
-        elif "hud_data/open_" in source:
+        elif "opening_ranges.json" in source:
             create_opening_ranges()
         print(f"Couldn't find file: {source}")
         return 0
@@ -347,26 +360,16 @@ def create_config(target_file):
     save_to_json(target_file, config_data)
 
 def create_opening_ranges():
-    # Filepath for the CSV
-    csv_file = "./hud_data/openingHands.csv"
-
-    json_dict = {}
-
-    # Read and process the CSV file
-    try:
-        with open(csv_file, mode='r') as file:
-            csv_reader = csv.reader(file)
-            for row in csv_reader:
-                for cell in row:
-                    json_dict[cell] = 0
-    except FileNotFoundError:
-        print(f"File '{csv_file}' not found. Please make sure the file exists.")
-
-    # Save initial opening ranges for each position
-    positions = ["sb", "bb", "utg", "hj", "co", "bu"]
-    for pos in positions:
-        file_name = f"./hud_data/open_{pos}.json"
-        save_to_json(file_name, json_dict)
+    """Create initial opening ranges JSON with empty ranges for each position"""
+    opening_ranges = {
+        "SB": [],
+        "BB": [],
+        "UTG": [],
+        "HJ": [],
+        "CO": [],
+        "BU": []
+    }
+    save_to_json("./hud_data/opening_ranges.json", opening_ranges)
 
 def save_to_csv(target, csv_data):
     """
