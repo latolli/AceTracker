@@ -171,8 +171,14 @@ def handle_txt_file(source_file, hero_name):
                             temp_stats[current_seat]["money_betted_this_state"] = float(find_dollars[-1])
                         elif "Uncalled bet" in line:
                             temp_stats[current_seat]["money_betted_this_state"] -= float(find_dollars[-1])
+                    elif state == "showdown":
+                        # Check cash out
+                        if "cashed out the hand" in line:
+                            cash_out_amount = float(find_dollars[0])
+                            temp_stats[current_seat]["money_betted_total"] -= cash_out_amount
+                            data_from_hand["river"].append(f"{temp_stats[current_seat]['usr']}: cashed out ${cash_out_amount}")
                     elif state == "end-hand":
-                        if "collected" in line or "won" in line:
+                        if ("collected" in line or "won" in line) and ("player cashed out" not in line):
                             temp_stats[current_seat]["money_betted_total"] -= float(find_dollars[-1])
                 
                 if state == "end-hand":
@@ -295,7 +301,7 @@ def save_to_json(target, json_data):
     if "hands_db" in target and not os.path.exists("./hands_db"):
         os.makedirs("./hands_db")
     with open(target, "w") as outfile: 
-        json.dump(json_data, outfile, indent=1, separators=(',', ': '))
+        json.dump(json_data, outfile, indent=4, separators=(',', ': '))
 
 def load_from_json(source):
     """
