@@ -253,10 +253,20 @@ class OpeningRanges(ctk.CTkFrame):
         # Load initial data
         self.refresh_data()
 
-        # Load hands
-        with open('./hud_data/openingHands.csv') as csv_file:
-            csv_reader = csv.reader(csv_file)
-            self.tableTexts = [row for row in csv_reader]
+        # Generate poker hands grid
+        ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+        self.tableTexts = []
+        for i, rank1 in enumerate(ranks):
+            row = []
+            for j, rank2 in enumerate(ranks):
+                if i < j:
+                    hand = f"{rank1}{rank2}s"
+                elif i > j:
+                    hand = f"{rank2}{rank1}o"
+                else:
+                    hand = f"{rank1}{rank2}"
+                row.append(hand)
+            self.tableTexts.append(row)
 
         # Add navigation buttons and title
         self.position_display = ctk.CTkLabel(self.menu_frame, text=f"{self.active_pos}", font=("Arial", 24, "bold"))
