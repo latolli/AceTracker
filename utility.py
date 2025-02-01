@@ -33,12 +33,13 @@ def street_start_actions(short_stats, hand_db_data, line, current_state, previou
         if debug: print(f"ADDED pot size: ${pot_size:.2f}")
     return short_stats, hand_db_data, cards
 
-def handle_txt_file(source_file, hero_name):
+def handle_txt_file(source_file, hero_name, tournament_mode=0):
     """
     Function for parsing txt files containing all hands played in one table
     """
     # Pre-compile regex patterns
     dollar_pattern = re.compile(r"\$(\d+\.\d+)")
+    digits_pattern = re.compile(r"(\d)")
     hand_id_pattern = re.compile(r"PokerStars Hand #(\d+)")
     
     # Initialize variables outside the loop
@@ -48,6 +49,8 @@ def handle_txt_file(source_file, hero_name):
     
     # Read file in chunks for better performance
     with open(source_file, 'r', buffering=8192) as source:
+        if tournament_mode:
+            source_file = source_file.replace("No Limit", "- No Limit")
         hand_db_file = source_file.split("\\")[-1].split("-")[0].replace(" ", "_") + "db.json"
         
         # Process file in larger chunks
@@ -65,9 +68,6 @@ def handle_txt_file(source_file, hero_name):
         for line in lines:
             # Check hand state
             if "PokerStars Hand #" in line:
-                # Skip tournaments
-                if "Tournament #" in line:
-                    break
                 state = "start-hand"
                 # Reset variables
                 temp_stats = {}
@@ -171,7 +171,11 @@ def handle_txt_file(source_file, hero_name):
             # If valid seat number found
             if current_seat:
                 # Check money betted / won
-                find_dollars = dollar_pattern.findall(line)
+                if tournament_mode:
+                    tmp_line = line.replace(f"{current_player}", "")   # Remove player name from line to not confuse digit finding
+                    find_dollars = digits_pattern.findall(tmp_line)
+                else:
+                    find_dollars = dollar_pattern.findall(line)
                 if find_dollars:
                     if state not in ["end-hand", "showdown"]:
                         if "bets" in line or "calls" in line:
@@ -211,8 +215,10 @@ def handle_txt_file(source_file, hero_name):
                     # If profit checked for all players, save data to database
                     if profit_checked == len(temp_stats):
                         dict_key = f"{hand_id}_{data_from_hand['summary'][hero_name]['profit']:.2f}"
+                        if tournament_mode:
+                            dict_key = f"T_{dict_key}"
                         bank_roll_data.append(float(data_from_hand['summary'][hero_name]['profit']))
-                        total_hands_data[dict_key[3:]] = data_from_hand
+                        total_hands_data[dict_key] = data_from_hand
                         if super_debug: print("Hand data saved to database", data_from_hand)
 
                 # Check dealt cards to hero and showdown cards

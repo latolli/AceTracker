@@ -329,6 +329,7 @@ class OpeningRanges(ctk.CTkFrame):
             for col in range(13):
                 # Create a clickable cell
                 cell_text = f"{self.tableTexts[row][col]}"
+                cell_color = None
                 if cell_text in self.opening_ranges[self.active_pos]:
                     cell_color = "brown"
 
@@ -413,13 +414,17 @@ class OpeningRanges(ctk.CTkFrame):
 
     def refresh_data(self):
         # Check latest table from hand_history
-        files = [os.path.join(history_path, f) for f in os.listdir(history_path) if os.path.isfile(os.path.join(history_path, f)) and "USD No Limit Hold'em" in f]
+        files = [os.path.join(history_path, f) for f in os.listdir(history_path) if os.path.isfile(os.path.join(history_path, f))]
         if files:
             latest_file = max(files, key=os.path.getmtime)
 
+            # Very smart way to check if file name is tournament
+            is_tournament = 0
+            if " T" in latest_file and " No Limit Hold'em $" in latest_file and " + " in latest_file:
+                is_tournament = 1
             # Parse data from latest table
             if latest_file:
-                table_stats, last_hand_stats, _ = handle_txt_file(latest_file, ps_username)
+                table_stats, last_hand_stats, _ = handle_txt_file(latest_file, ps_username, is_tournament)
                 if table_stats:
                     self.display_hud(table_stats, last_hand_stats)
     
